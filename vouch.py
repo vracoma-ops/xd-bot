@@ -4,6 +4,24 @@ from discord.ext import commands
 from datetime import datetime
 import os
 
+# ---------------- RENDER PORT FIX ----------------
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Vouch bot is running"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+threading.Thread(target=run_web).start()
+# ------------------------------------------------
+
+
 # ------------------- CONFIG -------------------
 GUILD_ID = 948971532431015976
 CONFIG_CHANNEL_ID = 1478282165618737266
