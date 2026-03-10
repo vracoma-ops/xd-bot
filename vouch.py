@@ -1,61 +1,64 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
 from datetime import datetime
 import os
 import threading
 import time
 import requests
-
-# ---------------- KEEP ALIVE WEB SERVER ----------------
 from flask import Flask
+
+# ---------------- WEB SERVER (RENDER KEEP ALIVE) ----------------
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Vouch bot is running!"
+    return "Vouch bot running!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# Start web server
+# start web server
 threading.Thread(target=run_web, daemon=True).start()
 
 
 # ---------------- SELF PING SYSTEM ----------------
+
 def self_ping():
     while True:
         try:
             url = os.getenv("RENDER_URL")
             if url:
                 requests.get(url)
-                print("Self ping sent")
+                print("Self ping successful")
         except Exception as e:
             print("Ping failed:", e)
 
-        time.sleep(300)  # every 5 minutes
+        time.sleep(300)
 
 threading.Thread(target=self_ping, daemon=True).start()
-# -------------------------------------------------
+
+# --------------------------------------------------
 
 
-# ------------------- CONFIG -------------------
+# ---------------- CONFIG ----------------
+
 GUILD_ID = 948971532431015976
 CONFIG_CHANNEL_ID = 1478282165618737266
 VOUCHES_CHANNEL_ID = 1478334777533927456
-
 ADMIN_ID = 458624557763526666
 
 APPROVE_EMOJI = "✅"
 DECLINE_EMOJI = "❌"
-# ---------------------------------------------
+
+# ----------------------------------------
 
 
 intents = discord.Intents.default()
-intents.members = True
 intents.message_content = True
+intents.members = True
 intents.reactions = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -65,40 +68,43 @@ processed_messages = set()
 
 
 # ---------------- BOT READY ----------------
+
 @bot.event
 async def on_ready():
-    print(f"[V1x Vouch] Logged in as {bot.user} ✅")
+    print(f"Bot logged in as {bot.user}")
 
     try:
         synced = await tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"Synced {len(synced)} slash commands.")
+        print(f"Slash commands synced: {len(synced)}")
     except Exception as e:
-        print(f"Slash command sync failed: {e}")
+        print("Sync error:", e)
 
 
 # ---------------- VOUCH COMMAND ----------------
+
 @tree.command(
     name="vouch",
     description="Submit a vouch",
     guild=discord.Object(id=GUILD_ID)
 )
 @app_commands.describe(
-    seller="Seller's name",
-    product="Product/service bought",
+    product="Product purchased",
     quantity="Quantity purchased",
-    proof="Attach proof image"
+    duration="Duration of service",
+    proof="Upload proof image"
 )
+
 async def vouch(
     interaction: discord.Interaction,
-    seller: str,
     product: str,
     quantity: str,
+    duration: str,
     proof: discord.Attachment
 ):
 
-    if not proof.filename.lower().endswith((".png", ".jpg", ".jpeg")):
+    if not proof.filename.lower().endswith((".png",".jpg",".jpeg")):
         await interaction.response.send_message(
-            "⚠ Please upload a valid image (png, jpg, jpeg).",
+            "Please upload a valid image file.",
             ephemeral=True
         )
         return
@@ -109,7 +115,7 @@ async def vouch(
 
     if not config_channel:
         await interaction.followup.send(
-            "⚠ Config channel not found.",
+            "Config channel not found.",
             ephemeral=True
         )
         return
@@ -119,9 +125,9 @@ async def vouch(
         color=discord.Color.blue()
     )
 
-    embed.add_field(name="Seller", value=seller, inline=True)
-    embed.add_field(name="Product/Service", value=product, inline=True)
+    embed.add_field(name="Product", value=product, inline=False)
     embed.add_field(name="Quantity", value=quantity, inline=True)
+    embed.add_field(name="Duration", value=duration, inline=True)
 
     embed.set_image(url=proof.url)
 
@@ -139,12 +145,13 @@ async def vouch(
     await message.add_reaction(DECLINE_EMOJI)
 
     await interaction.followup.send(
-        "✅ Your vouch has been submitted for approval!",
+        "Your vouch has been submitted for approval.",
         ephemeral=True
     )
 
 
-# ---------------- REACTION HANDLER ----------------
+# ---------------- REACTION APPROVAL ----------------
+
 @bot.event
 async def on_raw_reaction_add(payload):
 
@@ -177,30 +184,30 @@ async def on_raw_reaction_add(payload):
     if not vouches_channel:
         return
 
-    original_embed = message.embeds[0]
+    embed = message.embeds[0]
 
     if emoji == APPROVE_EMOJI:
 
         processed_messages.add(message.id)
 
-        date_now = datetime.now().strftime("%d-%m-%Y")
+        date = datetime.now().strftime("%d-%m-%Y")
 
         approved_embed = discord.Embed(
-            title=f"New Vouch ({date_now})",
+            title=f"New Vouch ({date})",
             color=discord.Color.green()
         )
 
         approved_embed.description = message.content
 
-        for field in original_embed.fields:
+        for field in embed.fields:
             approved_embed.add_field(
                 name=field.name,
                 value=field.value,
                 inline=field.inline
             )
 
-        if original_embed.image:
-            approved_embed.set_image(url=original_embed.image.url)
+        if embed.image:
+            approved_embed.set_image(url=embed.image.url)
 
         guild = bot.get_guild(GUILD_ID)
         user = guild.get_member(payload.user_id)
@@ -210,19 +217,22 @@ async def on_raw_reaction_add(payload):
         )
 
         await vouches_channel.send(embed=approved_embed)
+
         await message.delete()
 
     elif emoji == DECLINE_EMOJI:
 
         processed_messages.add(message.id)
+
         await message.delete()
 
 
 # ---------------- TOKEN ----------------
-BOT_TOKEN = os.getenv("TOKEN")
 
-if not BOT_TOKEN:
-    print("ERROR: TOKEN not found.")
+TOKEN = os.getenv("TOKEN")
+
+if not TOKEN:
+    print("ERROR: TOKEN not found")
     exit()
 
-bot.run(BOT_TOKEN)
+bot.run(TOKEN)
