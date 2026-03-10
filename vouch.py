@@ -4,6 +4,8 @@ from discord.ext import commands
 from datetime import datetime
 import os
 import threading
+import time
+import requests
 
 # ---------------- KEEP ALIVE WEB SERVER ----------------
 from flask import Flask
@@ -18,9 +20,25 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# Start web server thread
+# Start web server
 threading.Thread(target=run_web, daemon=True).start()
-# ------------------------------------------------------
+
+
+# ---------------- SELF PING SYSTEM ----------------
+def self_ping():
+    while True:
+        try:
+            url = os.getenv("RENDER_URL")
+            if url:
+                requests.get(url)
+                print("Self ping sent")
+        except Exception as e:
+            print("Ping failed:", e)
+
+        time.sleep(300)  # every 5 minutes
+
+threading.Thread(target=self_ping, daemon=True).start()
+# -------------------------------------------------
 
 
 # ------------------- CONFIG -------------------
@@ -45,6 +63,7 @@ tree = bot.tree
 
 processed_messages = set()
 
+
 # ---------------- BOT READY ----------------
 @bot.event
 async def on_ready():
@@ -67,7 +86,7 @@ async def on_ready():
     seller="Seller's name",
     product="Product/service bought",
     quantity="Quantity purchased",
-    proof="Attach proof image (png, jpg, jpeg)"
+    proof="Attach proof image"
 )
 async def vouch(
     interaction: discord.Interaction,
@@ -203,7 +222,7 @@ async def on_raw_reaction_add(payload):
 BOT_TOKEN = os.getenv("TOKEN")
 
 if not BOT_TOKEN:
-    print("ERROR: TOKEN not found in environment variables.")
+    print("ERROR: TOKEN not found.")
     exit()
 
 bot.run(BOT_TOKEN)
