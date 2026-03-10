@@ -8,7 +8,7 @@ import time
 import requests
 from flask import Flask
 
-# ---------------- WEB SERVER (RENDER KEEP ALIVE) ----------------
+# ---------------- KEEP ALIVE SERVER ----------------
 
 app = Flask(__name__)
 
@@ -16,32 +16,32 @@ app = Flask(__name__)
 def home():
     return "Vouch bot running!"
 
+@app.route("/ping")
+def ping():
+    return "pong"
+
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# start web server
 threading.Thread(target=run_web, daemon=True).start()
 
-
-# ---------------- SELF PING SYSTEM ----------------
-
+# ---------------- SELF PING BACKUP ----------------
 def self_ping():
+    url = os.getenv("RENDER_URL")
+    if not url:
+        return
+
     while True:
         try:
-            url = os.getenv("RENDER_URL")
-            if url:
-                requests.get(url)
-                print("Self ping successful")
+            requests.get(url + "/ping", timeout=10)
+            print("Self ping success")
         except Exception as e:
-            print("Ping failed:", e)
+            print("Self ping failed:", e)
 
         time.sleep(300)
 
 threading.Thread(target=self_ping, daemon=True).start()
-
-# --------------------------------------------------
-
 
 # ---------------- CONFIG ----------------
 
@@ -53,8 +53,7 @@ ADMIN_ID = 458624557763526666
 APPROVE_EMOJI = "✅"
 DECLINE_EMOJI = "❌"
 
-# ----------------------------------------
-
+# ---------------- BOT SETUP ----------------
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -66,19 +65,17 @@ tree = bot.tree
 
 processed_messages = set()
 
-
 # ---------------- BOT READY ----------------
 
 @bot.event
 async def on_ready():
-    print(f"Bot logged in as {bot.user}")
+    print(f"Logged in as {bot.user}")
 
     try:
         synced = await tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"Slash commands synced: {len(synced)}")
+        print(f"Synced {len(synced)} commands")
     except Exception as e:
-        print("Sync error:", e)
-
+        print("Slash command sync error:", e)
 
 # ---------------- VOUCH COMMAND ----------------
 
@@ -102,9 +99,9 @@ async def vouch(
     proof: discord.Attachment
 ):
 
-    if not proof.filename.lower().endswith((".png",".jpg",".jpeg")):
+    if not proof.filename.lower().endswith((".png", ".jpg", ".jpeg")):
         await interaction.response.send_message(
-            "Please upload a valid image file.",
+            "Please upload a PNG/JPG image proof.",
             ephemeral=True
         )
         return
@@ -145,12 +142,11 @@ async def vouch(
     await message.add_reaction(DECLINE_EMOJI)
 
     await interaction.followup.send(
-        "Your vouch has been submitted for approval.",
+        "Your vouch has been submitted for admin approval.",
         ephemeral=True
     )
 
-
-# ---------------- REACTION APPROVAL ----------------
+# ---------------- REACTION HANDLER ----------------
 
 @bot.event
 async def on_raw_reaction_add(payload):
@@ -168,7 +164,6 @@ async def on_raw_reaction_add(payload):
         return
 
     channel = bot.get_channel(payload.channel_id)
-
     if not channel:
         return
 
@@ -180,7 +175,6 @@ async def on_raw_reaction_add(payload):
     emoji = str(payload.emoji)
 
     vouches_channel = bot.get_channel(VOUCHES_CHANNEL_ID)
-
     if not vouches_channel:
         return
 
@@ -212,9 +206,8 @@ async def on_raw_reaction_add(payload):
         guild = bot.get_guild(GUILD_ID)
         user = guild.get_member(payload.user_id)
 
-        approved_embed.set_footer(
-            text=f"Approved by {user.display_name}"
-        )
+        if user:
+            approved_embed.set_footer(text=f"Approved by {user.display_name}")
 
         await vouches_channel.send(embed=approved_embed)
 
@@ -223,16 +216,14 @@ async def on_raw_reaction_add(payload):
     elif emoji == DECLINE_EMOJI:
 
         processed_messages.add(message.id)
-
         await message.delete()
 
-
-# ---------------- TOKEN ----------------
+# ---------------- RUN BOT ----------------
 
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    print("ERROR: TOKEN not found")
+    print("TOKEN not found in environment variables")
     exit()
 
 bot.run(TOKEN)
