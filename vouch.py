@@ -3,23 +3,24 @@ from discord import app_commands
 from discord.ext import commands
 from datetime import datetime
 import os
-
-# ---------------- RENDER PORT FIX ----------------
-from flask import Flask
 import threading
+
+# ---------------- KEEP ALIVE WEB SERVER ----------------
+from flask import Flask
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Vouch bot is running"
+    return "Vouch bot is running!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-threading.Thread(target=run_web).start()
-# ------------------------------------------------
+# Start web server thread
+threading.Thread(target=run_web, daemon=True).start()
+# ------------------------------------------------------
 
 
 # ------------------- CONFIG -------------------
@@ -27,11 +28,12 @@ GUILD_ID = 948971532431015976
 CONFIG_CHANNEL_ID = 1478282165618737266
 VOUCHES_CHANNEL_ID = 1478334777533927456
 
-ADMIN_ID = 458624557763526666  # Your Discord ID
+ADMIN_ID = 458624557763526666
 
 APPROVE_EMOJI = "✅"
 DECLINE_EMOJI = "❌"
 # ---------------------------------------------
+
 
 intents = discord.Intents.default()
 intents.members = True
@@ -53,6 +55,7 @@ async def on_ready():
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Slash command sync failed: {e}")
+
 
 # ---------------- VOUCH COMMAND ----------------
 @tree.command(
@@ -84,6 +87,7 @@ async def vouch(
     await interaction.response.defer(ephemeral=True)
 
     config_channel = bot.get_channel(CONFIG_CHANNEL_ID)
+
     if not config_channel:
         await interaction.followup.send(
             "⚠ Config channel not found.",
@@ -120,6 +124,7 @@ async def vouch(
         ephemeral=True
     )
 
+
 # ---------------- REACTION HANDLER ----------------
 @bot.event
 async def on_raw_reaction_add(payload):
@@ -137,6 +142,7 @@ async def on_raw_reaction_add(payload):
         return
 
     channel = bot.get_channel(payload.channel_id)
+
     if not channel:
         return
 
@@ -148,6 +154,7 @@ async def on_raw_reaction_add(payload):
     emoji = str(payload.emoji)
 
     vouches_channel = bot.get_channel(VOUCHES_CHANNEL_ID)
+
     if not vouches_channel:
         return
 
@@ -190,6 +197,7 @@ async def on_raw_reaction_add(payload):
 
         processed_messages.add(message.id)
         await message.delete()
+
 
 # ---------------- TOKEN ----------------
 BOT_TOKEN = os.getenv("TOKEN")
