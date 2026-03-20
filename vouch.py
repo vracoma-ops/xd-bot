@@ -4,47 +4,27 @@ from discord import app_commands
 from datetime import datetime
 import os
 import threading
-import time
-import requests
-from flask import Flask
 
-# ---------------- KEEP ALIVE SERVER ----------------
+# ---------------- KEEP ALIVE SERVER (RENDER FIX) ----------------
+
+from flask import Flask
+from threading import Thread
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Vouch bot running!"
+    return "Bot is alive!"
 
-@app.route("/ping")
-def ping():
-    return "pong"
-
-def run_web():
+def run():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-threading.Thread(target=run_web, daemon=True).start()
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
-# ---------------- SELF PING BACKUP ----------------
-
-def self_ping():
-    url = os.getenv("RENDER_URL")
-
-    if not url:
-        print("No RENDER_URL set")
-        return
-
-    while True:
-        try:
-            res = requests.get(url + "/ping", timeout=10)
-            print("Ping:", res.status_code)
-        except Exception as e:
-            print("Ping failed:", e)
-
-        time.sleep(300)
-
-threading.Thread(target=self_ping, daemon=True).start()
+keep_alive()
 
 # ---------------- CONFIG ----------------
 
@@ -68,7 +48,7 @@ tree = bot.tree
 
 processed_messages = set()
 
-# ---------------- BOT READY ----------------
+# ---------------- READY ----------------
 
 @bot.event
 async def on_ready():
@@ -78,19 +58,15 @@ async def on_ready():
         synced = await tree.sync(guild=discord.Object(id=GUILD_ID))
         print(f"Synced {len(synced)} commands")
     except Exception as e:
-        print("Slash command sync error:", e)
+        print("Sync error:", e)
 
 # ---------------- ERROR HANDLER ----------------
 
 @bot.event
 async def on_app_command_error(interaction: discord.Interaction, error):
     print("ERROR:", error)
-
     try:
-        await interaction.followup.send(
-            "Something went wrong. Try again.",
-            ephemeral=True
-        )
+        await interaction.followup.send("Something went wrong.", ephemeral=True)
     except:
         pass
 
@@ -115,14 +91,13 @@ async def vouch(
     proof: discord.Attachment
 ):
 
-    print("Vouch command triggered by:", interaction.user)
+    print("Vouch used by:", interaction.user)
 
-    # ✅ DEFER FIRST (fix timeout)
     await interaction.response.defer(ephemeral=True)
 
     if not proof.filename.lower().endswith((".png", ".jpg", ".jpeg")):
         await interaction.followup.send(
-            "Please upload a PNG/JPG image proof.",
+            "Upload PNG/JPG proof only.",
             ephemeral=True
         )
         return
@@ -130,16 +105,10 @@ async def vouch(
     config_channel = bot.get_channel(CONFIG_CHANNEL_ID)
 
     if not config_channel:
-        await interaction.followup.send(
-            "Config channel not found.",
-            ephemeral=True
-        )
+        await interaction.followup.send("Config channel not found.", ephemeral=True)
         return
 
-    embed = discord.Embed(
-        title="New Vouch Submission",
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title="New Vouch Submission", color=discord.Color.blue())
 
     embed.add_field(name="Product", value=product, inline=False)
     embed.add_field(name="Quantity", value=quantity, inline=True)
@@ -161,7 +130,7 @@ async def vouch(
     await message.add_reaction(DECLINE_EMOJI)
 
     await interaction.followup.send(
-        "Your vouch has been submitted for admin approval.",
+        "Your vouch has been submitted for approval.",
         ephemeral=True
     )
 
@@ -237,12 +206,12 @@ async def on_raw_reaction_add(payload):
         processed_messages.add(message.id)
         await message.delete()
 
-# ---------------- RUN BOT ----------------
+# ---------------- RUN ----------------
 
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    print("TOKEN not found in environment variables")
+    print("TOKEN missing")
     exit()
 
 bot.run(TOKEN)
