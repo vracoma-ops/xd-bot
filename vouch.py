@@ -27,17 +27,20 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 # ---------------- SELF PING BACKUP ----------------
+
 def self_ping():
     url = os.getenv("RENDER_URL")
+
     if not url:
+        print("No RENDER_URL set")
         return
 
     while True:
         try:
-            requests.get(url + "/ping", timeout=10)
-            print("Self ping success")
+            res = requests.get(url + "/ping", timeout=10)
+            print("Ping:", res.status_code)
         except Exception as e:
-            print("Self ping failed:", e)
+            print("Ping failed:", e)
 
         time.sleep(300)
 
@@ -77,6 +80,20 @@ async def on_ready():
     except Exception as e:
         print("Slash command sync error:", e)
 
+# ---------------- ERROR HANDLER ----------------
+
+@bot.event
+async def on_app_command_error(interaction: discord.Interaction, error):
+    print("ERROR:", error)
+
+    try:
+        await interaction.followup.send(
+            "Something went wrong. Try again.",
+            ephemeral=True
+        )
+    except:
+        pass
+
 # ---------------- VOUCH COMMAND ----------------
 
 @tree.command(
@@ -90,7 +107,6 @@ async def on_ready():
     duration="Duration of service",
     proof="Upload proof image"
 )
-
 async def vouch(
     interaction: discord.Interaction,
     product: str,
@@ -99,14 +115,17 @@ async def vouch(
     proof: discord.Attachment
 ):
 
+    print("Vouch command triggered by:", interaction.user)
+
+    # ✅ DEFER FIRST (fix timeout)
+    await interaction.response.defer(ephemeral=True)
+
     if not proof.filename.lower().endswith((".png", ".jpg", ".jpeg")):
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "Please upload a PNG/JPG image proof.",
             ephemeral=True
         )
         return
-
-    await interaction.response.defer(ephemeral=True)
 
     config_channel = bot.get_channel(CONFIG_CHANNEL_ID)
 
