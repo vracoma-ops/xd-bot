@@ -3,7 +3,6 @@ from discord.ext import commands
 from discord import app_commands
 from datetime import datetime
 import os
-import threading
 
 # ---------------- KEEP ALIVE SERVER (RENDER FIX) ----------------
 
@@ -16,15 +15,12 @@ app = Flask(__name__)
 def home():
     return "Bot is alive!"
 
-def run():
+def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-keep_alive()
+    Thread(target=run_web, daemon=True).start()
 
 # ---------------- CONFIG ----------------
 
@@ -108,7 +104,10 @@ async def vouch(
         await interaction.followup.send("Config channel not found.", ephemeral=True)
         return
 
-    embed = discord.Embed(title="New Vouch Submission", color=discord.Color.blue())
+    embed = discord.Embed(
+        title="New Vouch Submission",
+        color=discord.Color.blue()
+    )
 
     embed.add_field(name="Product", value=product, inline=False)
     embed.add_field(name="Quantity", value=quantity, inline=True)
@@ -168,6 +167,7 @@ async def on_raw_reaction_add(payload):
 
     embed = message.embeds[0]
 
+    # ✅ APPROVE
     if emoji == APPROVE_EMOJI:
 
         processed_messages.add(message.id)
@@ -198,9 +198,9 @@ async def on_raw_reaction_add(payload):
             approved_embed.set_footer(text=f"Approved by {user.display_name}")
 
         await vouches_channel.send(embed=approved_embed)
-
         await message.delete()
 
+    # ❌ DECLINE
     elif emoji == DECLINE_EMOJI:
 
         processed_messages.add(message.id)
@@ -213,5 +213,7 @@ TOKEN = os.getenv("TOKEN")
 if not TOKEN:
     print("TOKEN missing")
     exit()
+
+keep_alive()  # ✅ important for Render
 
 bot.run(TOKEN)
