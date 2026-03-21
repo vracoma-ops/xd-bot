@@ -1,175 +1,74 @@
+# vouch.py
 import discord
-from discord.ext import commands
-from discord import app_commands
-from datetime import datetime
-import os
+from discord.ext import commands, tasks
 from flask import Flask
-from threading import Thread
+import threading
+import os
 
-# ---------------- KEEP ALIVE SERVER ----------------
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is alive!"
-
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-def keep_alive():
-    Thread(target=run_web, daemon=True).start()
-
-# ---------------- CONFIG ----------------
-
-GUILD_ID = 948971532431015976
-CONFIG_CHANNEL_ID = 1478282165618737266
-VOUCHES_CHANNEL_ID = 1478334777533927456
-ADMIN_ID = 458624557763526666
-
+# ------------------- CONFIG -------------------
+TOKEN = os.environ.get("TOKEN")  # Set this in Render's environment variables
+GUILD_ID = int(os.environ.get("GUILD_ID", "948971532431015976"))
+CONFIG_CHANNEL_ID = int(os.environ.get("CONFIG_CHANNEL_ID", "1478282165618737266"))
+VOUCHES_CHANNEL_ID = int(os.environ.get("VOUCHES_CHANNEL_ID", "1477973914914132092"))
 APPROVE_EMOJI = "✅"
 DECLINE_EMOJI = "❌"
 
-# ---------------- BOT SETUP ----------------
-
+# ------------------- DISCORD BOT -------------------
 intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.reactions = True
+intents.members = True           # Only enable if needed
+intents.message_content = True   # Needed to read messages
 
-bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
-
-processed_messages = set()
-
-# ---------------- READY ----------------
+bot = commands.Bot(command_prefix='/', intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
-    try:
-        synced = await tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"Synced {len(synced)} commands")
-    except Exception as e:
-        print("Sync error:", e)
+    print(f'Logged in as {bot.user} (ID: {bot.user.id})')
+    print('------')
+    heartbeat.start()  # Start heartbeat to keep bot alive
 
-# ---------------- ERROR HANDLER ----------------
+# ------------------- HEARTBEAT TASK -------------------
+# Optional: ping self every 5 minutes to prevent idle disconnects
+@tasks.loop(minutes=5)
+async def heartbeat():
+    print("Heartbeat: bot is alive")
 
-@bot.event
-async def on_app_command_error(interaction: discord.Interaction, error):
-    print("ERROR:", error)
-    try:
-        await interaction.followup.send("Something went wrong.", ephemeral=True)
-    except:
-        pass
-
-# ---------------- VOUCH COMMAND ----------------
-
-@tree.command(
-    name="vouch",
-    description="Submit a vouch",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.describe(
-    product="Product purchased",
-    quantity="Quantity purchased",
-    duration="Duration of service",
-    proof="Upload proof image"
-)
-async def vouch(
-    interaction: discord.Interaction,
-    product: str,
-    quantity: str,
-    duration: str,
-    proof: discord.Attachment
-):
-    print("Vouch used by:", interaction.user)
-
-    # Defer with thinking=True to prevent timeout
-    await interaction.response.defer(ephemeral=True, thinking=True)
-
-    if not proof.filename.lower().endswith((".png", ".jpg", ".jpeg")):
-        await interaction.followup.send("Upload PNG/JPG proof only.", ephemeral=True)
+# ------------------- VOUCH COMMAND -------------------
+@bot.command()
+async def vouch(ctx, user: discord.Member, product: str, rating: int):
+    """Collect a vouch request."""
+    if ctx.channel.id != CONFIG_CHANNEL_ID:
+        await ctx.send("Use the correct channel to submit vouches.")
         return
+    
+    # Create an embed
+    embed = discord.Embed(
+        title=f"Vouch request for {user}",
+        description=f"Product/Service: {product}\nRating: {rating}/5",
+        color=discord.Color.blue()
+    )
+    msg = await ctx.send(embed=embed)
+    
+    # React for approval / decline
+    await msg.add_reaction(APPROVE_EMOJI)
+    await msg.add_reaction(DECLINE_EMOJI)
 
-    config_channel = bot.get_channel(CONFIG_CHANNEL_ID)
-    if not config_channel:
-        await interaction.followup.send("Config channel not found.", ephemeral=True)
-        return
+    await ctx.send("Vouch request submitted for review.")
 
-    embed = discord.Embed(title="New Vouch Submission", color=discord.Color.blue())
-    embed.add_field(name="Product", value=product, inline=False)
-    embed.add_field(name="Quantity", value=quantity, inline=True)
-    embed.add_field(name="Duration", value=duration, inline=True)
-    embed.set_image(url=proof.url)
-    embed.set_footer(text=f"Submitted by {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+# ------------------- FLASK KEEP-ALIVE -------------------
+# Render requires a web server to keep free services alive
+app = Flask("")
 
-    message = await config_channel.send(content=f"Vouch from {interaction.user.mention}", embed=embed)
-    await message.add_reaction(APPROVE_EMOJI)
-    await message.add_reaction(DECLINE_EMOJI)
+@app.route("/")
+def home():
+    return "Bot is running!"
 
-    await interaction.followup.send("Your vouch has been submitted for approval.", ephemeral=True)
+def run_flask():
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
-# ---------------- REACTION HANDLER ----------------
-
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.user_id == bot.user.id:
-        return
-    if payload.channel_id != CONFIG_CHANNEL_ID:
-        return
-    if payload.user_id != ADMIN_ID:
-        return
-    if payload.message_id in processed_messages:
-        return
-
-    channel = bot.get_channel(payload.channel_id)
-    if not channel:
-        return
-
-    message = await channel.fetch_message(payload.message_id)
-    if not message.embeds:
-        return
-
-    emoji = str(payload.emoji)
-    vouches_channel = bot.get_channel(VOUCHES_CHANNEL_ID)
-    if not vouches_channel:
-        return
-
-    embed = message.embeds[0]
-
-    if emoji == APPROVE_EMOJI:
-        processed_messages.add(message.id)
-        date = datetime.now().strftime("%d-%m-%Y")
-
-        approved_embed = discord.Embed(title=f"New Vouch ({date})", color=discord.Color.green())
-        approved_embed.description = message.content
-
-        for field in embed.fields:
-            approved_embed.add_field(name=field.name, value=field.value, inline=field.inline)
-
-        if embed.image:
-            approved_embed.set_image(url=embed.image.url)
-
-        guild = bot.get_guild(GUILD_ID)
-        user = guild.get_member(payload.user_id)
-        if user:
-            approved_embed.set_footer(text=f"Approved by {user.display_name}")
-
-        await vouches_channel.send(embed=approved_embed)
-        await message.delete()
-
-    elif emoji == DECLINE_EMOJI:
-        processed_messages.add(message.id)
-        await message.delete()
-
-# ---------------- RUN ----------------
-
-TOKEN = os.getenv("TOKEN")
-if not TOKEN:
-    print("TOKEN missing")
-    exit()
-
-keep_alive()  # Render keep-alive
-bot.run(TOKEN)
+# ------------------- RUN BOTH -------------------
+if __name__ == "__main__":
+    # Start Flask in a separate thread
+    threading.Thread(target=run_flask).start()
+    
+    # Run Discord bot
+    bot.run(TOKEN)
